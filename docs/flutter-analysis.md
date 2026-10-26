@@ -109,8 +109,11 @@ server; older servers keep the complete request after schema discovery.
   header check does not establish valid table contents or exported symbols.
 - **`libflutter` facts** are per-ABI observations: byte size, SHA-256
   digest, GNU build IDs from ELF-declared `PT_NOTE` / `SHT_NOTE` ranges,
-  and any _labeled_ strings the build
-  carries. Release engine builds often strip the `Dart VM version` string —
+  any _labeled_ strings the build carries, and Dart's own version string.
+  `dart_version` reports either a `Dart VM version:` line or the
+  unlabeled Dart version string release engines carry (Dart's
+  `Version::String()`, for example
+  `3.7.2 (stable) (Tue Mar 11 04:27:50 2025 -0700) on "android_arm64"`);
   absence is reported as `null`, not guessed. Android clang/LLVM toolchain
   lines are reported verbatim as build provenance.
   `build_id_candidates` preserves distinct IDs. `build_id` is populated only

@@ -238,3 +238,56 @@ describe("LabeledStringScanner", () => {
     });
   });
 });
+
+describe("LabeledStringScanner Dart version string", () => {
+  it.each([
+    // Flutter 3.29 / Dart 3.7.2 release engine (arm64-v8a).
+    '3.7.2 (stable) (Tue Mar 11 04:27:50 2025 -0700) on "android_arm64"',
+    // Flutter Gallery 2.9.2 release engine, before the " on" suffix existed.
+    "2.14.0-151.0.dev (dev) (Tue May 25 10:58:39 2021 -0700)",
+  ])("reads the Dart version string a release engine carries: %s", (line) => {
+    const payload = Buffer.from(`\x00${line}\x00`);
+    for (const chunkSize of [1, 7, payload.length]) {
+      const scanner = new LabeledStringScanner();
+      for (let offset = 0; offset < payload.length; offset += chunkSize)
+        scanner.push(payload.subarray(offset, offset + chunkSize));
+      expect(scanner.result()).toMatchObject({
+        dartVersion: line,
+        dartVersionCapped: false,
+      });
+    }
+  });
+
+  it("treats a labeled line and the bare string for one version as agreeing", () => {
+    const bare =
+      '3.7.2 (stable) (Tue Mar 11 04:27:50 2025 -0700) on "android_arm64"';
+    const scanner = new LabeledStringScanner();
+    scanner.push(Buffer.from(`\x00Dart VM version: ${bare}\x00${bare}\x00`));
+    expect(scanner.result()).toMatchObject({
+      dartVersion: `Dart VM version: ${bare}`,
+      dartVersionCapped: false,
+    });
+    const conflicting = new LabeledStringScanner();
+    conflicting.push(
+      Buffer.from(`\x00${bare}\x00${bare.replace("3.7.2", "3.7.3")}\x00`),
+    );
+    expect(conflicting.result()).toMatchObject({
+      dartVersion: bare,
+      dartVersionCapped: true,
+    });
+  });
+
+  it.each([
+    "3.7.2 (stable)",
+    "3.7.2 (stable) (Tue Mar 11 04:27:50 2025 -0700) on android_arm64",
+    "version 3.7.2 (stable) (Tue Mar 11 04:27:50 2025 -0700)",
+    "3.7.2 (stable) (Tue Mar 11 04:27:50 2025 -0700) extra",
+  ])("ignores runs outside the Dart version grammar: %s", (line) => {
+    const scanner = new LabeledStringScanner();
+    scanner.push(Buffer.from(`\x00${line}\x00`));
+    expect(scanner.result()).toMatchObject({
+      dartVersion: null,
+      dartVersionCapped: false,
+    });
+  });
+});

@@ -124,6 +124,13 @@ export interface LabeledStringScan {
 }
 
 const DART_VERSION_PATTERN = /^Dart VM version:[^\x00\n]{0,200}$/u;
+/**
+ * Dart's Version::String() as release engines carry it, without a label:
+ * `<version> (<channel>) (<commit time>)`, plus ` on "<os>_<arch>"` in
+ * newer SDKs. The whole run must match, so the grammar bounds its length.
+ */
+const DART_VERSION_STRING_PATTERN =
+  /^\d{1,4}\.\d{1,4}\.\d{1,4}(?:-[0-9A-Za-z.]{1,40})? \([a-z]{1,16}\) \([^()]{1,64}\)(?: on "[a-z0-9_]{1,40}")?$/u;
 const TOOLCHAIN_PATTERN =
   /^(?:Android \([^)\x00\n]{0,80}\) clang version [^\x00\n]{0,500}|based on LLVM \d[^\x00\n]{0,80})$/u;
 const MAX_TOOLCHAIN_LINES = 4;
@@ -136,13 +143,17 @@ const CARRY_BYTES = 640;
 
 /**
  * Incremental ASCII string collector that keeps only labeled version and
- * toolchain facts. A match is committed only when a printable run is
+ * toolchain facts, plus Dart's own unlabeled version string. A match is committed only when a printable run is
  * terminated by a delimiter, so a value split across chunk boundaries is
  * never committed truncated; the carry holds the longest accepted match
  * so boundaries in either pattern survive.
  */
+const isAsciiDigit = (code: number): boolean => code >= 0x30 && code <= 0x39;
+
 export class LabeledStringScanner {
   #dartVersion: string | null = null;
+  /** The version with any `Dart VM version:` label removed, for comparison. */
+  #dartVersionValue: string | null = null;
   #dartVersionCapped = false;
   private readonly toolchainLines: string[] = [];
   private carry = "";
@@ -180,8 +191,14 @@ export class LabeledStringScanner {
     if (text.startsWith("Dart VM version:")) {
       if (this.overflowed || !DART_VERSION_PATTERN.test(text))
         this.#dartVersionCapped = true;
-      else if (this.#dartVersion === null) this.#dartVersion = text;
-      else if (this.#dartVersion !== text) this.#dartVersionCapped = true;
+      else this.#recordDartVersion(text);
+      return;
+    }
+    if (
+      isAsciiDigit(text.charCodeAt(0)) &&
+      DART_VERSION_STRING_PATTERN.test(text)
+    ) {
+      this.#recordDartVersion(text);
       return;
     }
     if (!text.startsWith("Android (") && !text.startsWith("based on LLVM "))
@@ -195,6 +212,17 @@ export class LabeledStringScanner {
     if (this.toolchainLines.length < MAX_TOOLCHAIN_LINES)
       this.toolchainLines.push(line);
     else this.#toolchainCapped = true;
+  }
+
+  #recordDartVersion(text: string): void {
+    // A labeled line and the bare string naming the same version agree.
+    const value = text.startsWith("Dart VM version:")
+      ? text.slice("Dart VM version:".length).trim()
+      : text;
+    if (this.#dartVersionValue === null) {
+      this.#dartVersion = text;
+      this.#dartVersionValue = value;
+    } else if (this.#dartVersionValue !== value) this.#dartVersionCapped = true;
   }
 
   result(): LabeledStringScan {
